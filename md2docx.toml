@@ -1,0 +1,254 @@
+# md2docx configuration
+#
+# Every section below is optional; anything you leave out keeps its built-in
+# default.  Write `md2docx.py --init` to regenerate this file.
+#
+# Units
+#   font sizes, spacing, indents, borders : points (bare number = points;
+#                                           strings may use pt/in/cm/mm/px)
+#   page size and margins                 : any of the above, e.g. "1in"
+#   line_spacing                          : a multiple, e.g. 1.15
+# Colors
+#   "#dddddd", "dddddd", "#ddd", a CSS-ish name ("lightgrey"), or "auto".
+
+[document]
+page_size    = "letter"     # letter | legal | tabloid | a3 | a4 | a5 | b5
+orientation  = "portrait"   # portrait | landscape
+margin_top    = "1in"
+margin_bottom = "1in"
+margin_left   = "1in"
+margin_right  = "1in"
+default_font     = "Calibri"
+default_size     = 11
+default_language = "en-US"
+
+[pandoc]
+from                = "markdown"   # any pandoc reader, e.g. "gfm", "commonmark_x"
+toc                 = false
+toc_depth           = 3
+number_sections     = false
+syntax_highlighting = true         # false makes styles.code_block.color authoritative
+highlight_style     = "tango"      # pygments | tango | kate | monochrome | breezedark | haddock | zenburn
+extra_args          = []           # e.g. ["--shift-heading-level-by=1"]
+filters             = []           # additional --lua-filter paths, applied after ours
+
+# ---------------------------------------------------------------- inline ---
+# Constructs marked `via_filter` are wrapped in a named character style by a
+# generated Lua filter, because pandoc otherwise writes them as direct
+# formatting that no reference document can reach.
+#
+#   via_filter  = false  -> leave pandoc's native output alone; this section
+#                           is then ignored for that construct
+#   keep_native = true   -> keep pandoc's direct formatting *and* add the
+#                           style on top (safest for nested **bold *italic***)
+#                 false  -> the style below is the only thing applied
+
+# *emphasis*
+[styles.emphasis]
+via_filter  = true
+keep_native = true
+italic      = true
+
+# **strong**
+[styles.strong]
+via_filter  = true
+keep_native = true
+bold        = true
+
+# ~~strikeout~~
+[styles.strikeout]
+via_filter  = true
+keep_native = true
+strike      = true
+
+# [underline]{.underline}
+[styles.underline]
+via_filter  = true
+keep_native = true
+underline   = "single"
+
+# [small caps]{.smallcaps}
+[styles.small_caps]
+via_filter  = true
+keep_native = true
+small_caps  = true
+
+# X^2^
+[styles.superscript]
+via_filter  = true
+keep_native = true
+vert_align  = "superscript"
+
+# H~2~O
+[styles.subscript]
+via_filter  = true
+keep_native = true
+vert_align  = "subscript"
+
+# `backticks` -- inline code
+[styles.inline_code]
+font       = "Consolas"
+size       = 10
+color      = "#1a1a1a"
+background = "#dddddd"
+
+# [links](https://example.com)
+[styles.link]
+color     = "#0563c1"
+underline = "single"
+
+[styles.footnote_reference]
+vert_align = "superscript"
+
+# ----------------------------------------------------------------- blocks ---
+
+# Base style every other style inherits from.
+[styles.normal]
+font         = "Calibri"
+size         = 11
+color        = "#000000"
+line_spacing = 1.15
+space_after  = 8
+
+[styles.body]
+space_after = 8
+
+# Paragraphs inside tight lists, table cells, etc.
+[styles.compact]
+space_before = 0
+space_after  = 0
+
+# ``` fenced code blocks ```
+[styles.code_block]
+font                = "Consolas"
+size                = 10
+color               = "#1a1a1a"
+background          = "#dddddd"
+line_spacing        = 1.0
+space_before        = 0
+space_after         = 0
+contextual_spacing  = true
+indent_left         = 6
+indent_right        = 6
+
+# A hairline box drawn around the whole run of code lines.  Comment the two
+# lines below out for a plain grey band with no rule.
+[styles.code_block.border]
+left  = { style = "single", size = 0.75, color = "#bbbbbb", space = 4 }
+right = { style = "single", size = 0.75, color = "#bbbbbb", space = 4 }
+
+# > blockquotes
+[styles.blockquote]
+italic      = false
+color       = "#404040"
+indent_left = 36
+space_after = 8
+[styles.blockquote.border]
+left = { style = "single", size = 2.25, color = "#cccccc", space = 8 }
+
+[styles.title]
+font         = "Calibri Light"
+size         = 28
+color        = "#1f3864"
+alignment    = "center"
+space_after  = 12
+
+[styles.subtitle]
+size      = 15
+color     = "#595959"
+italic    = true
+alignment = "center"
+
+[styles.heading1]
+font           = "Calibri Light"
+size           = 20
+bold           = true
+color          = "#1f3864"
+space_before   = 18
+space_after    = 6
+keep_with_next = true
+
+[styles.heading2]
+font           = "Calibri Light"
+size           = 16
+bold           = true
+color          = "#2e5496"
+space_before   = 14
+space_after    = 4
+keep_with_next = true
+
+[styles.heading3]
+font           = "Calibri Light"
+size           = 13
+bold           = true
+color          = "#2e5496"
+space_before   = 12
+space_after    = 4
+keep_with_next = true
+
+[styles.heading4]
+size           = 11
+bold           = true
+italic         = true
+color          = "#2e5496"
+space_before   = 10
+space_after    = 3
+keep_with_next = true
+
+[styles.heading5]
+size           = 11
+bold           = true
+color          = "#404040"
+space_before   = 10
+space_after    = 3
+keep_with_next = true
+
+[styles.heading6]
+size           = 11
+italic         = true
+color          = "#404040"
+space_before   = 10
+space_after    = 3
+keep_with_next = true
+
+[styles.caption]
+size      = 9
+italic    = true
+color     = "#595959"
+alignment = "center"
+
+[styles.image_caption]
+size      = 9
+italic    = true
+color     = "#595959"
+alignment = "center"
+
+[styles.table_caption]
+size      = 9
+italic    = true
+color     = "#595959"
+
+[styles.footnote_text]
+size         = 9
+line_spacing = 1.0
+space_after  = 0
+
+[styles.definition_term]
+bold = true
+
+[styles.definition]
+indent_left = 18
+
+# ----------------------------------------------------------------- tables ---
+[table]
+borders        = true
+border_style   = "single"   # single | double | dashed | dotted | thick | none
+border_size    = 0.5        # points
+border_color   = "#999999"
+inside_borders = true
+cell_padding   = 5          # points, left/right
+cell_padding_v = 2          # points, top/bottom
+
+[table.header]
+bold       = true
+background = "#eeeeee"

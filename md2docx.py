@@ -17,6 +17,7 @@ that YAML configuration files work too.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import io
 import json
@@ -29,6 +30,10 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
 
 __version__ = "1.0.0"
 
@@ -36,7 +41,8 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
 def w(tag: str) -> str:
-    return "{%s}%s" % (W, tag)
+    """Return the namespace-qualified OOXML tag name."""
+    return f"{{{W}}}{tag}"
 
 
 # --------------------------------------------------------------------------
@@ -184,7 +190,7 @@ ALIGNMENTS = {
 # Default configuration (also what ``--init`` writes out)
 # --------------------------------------------------------------------------
 
-DEFAULT_CONFIG_TOML = r'''# md2docx configuration
+DEFAULT_CONFIG_TOML = r"""# md2docx configuration
 #
 # Every section below is optional; anything you leave out keeps its built-in
 # default.  Write `md2docx.py --init` to regenerate this file.
@@ -214,7 +220,8 @@ toc                 = false
 toc_depth           = 3
 number_sections     = false
 syntax_highlighting = true         # false makes styles.code_block.color authoritative
-highlight_style     = "tango"      # pygments | tango | kate | monochrome | breezedark | haddock | zenburn
+# pygments | tango | kate | monochrome | breezedark | haddock | zenburn
+highlight_style     = "tango"
 extra_args          = []           # e.g. ["--shift-heading-level-by=1"]
 filters             = []           # additional --lua-filter paths, applied after ours
 
@@ -438,7 +445,7 @@ cell_padding_v = 2          # points, top/bottom
 [table.header]
 bold       = true
 background = "#eeeeee"
-'''
+"""
 
 
 # --------------------------------------------------------------------------
@@ -446,7 +453,7 @@ background = "#eeeeee"
 # --------------------------------------------------------------------------
 
 class ConfigError(Exception):
-    pass
+    """A problem with the configuration, the input, or the environment."""
 
 
 _UNITS_PER_PT = {
@@ -455,38 +462,45 @@ _UNITS_PER_PT = {
 }
 
 
-def to_points(value, what: str) -> float:
+def to_points(value: object, what: str) -> float:
     """Convert a config length into points."""
     if isinstance(value, bool):
-        raise ConfigError("%s: expected a length, got a boolean" % what)
+        msg = f"{what}: expected a length, got a boolean"
+        raise ConfigError(msg)
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
-        m = re.fullmatch(r"\s*(-?\d*\.?\d+)\s*([a-z]*)\s*", value, re.I)
+        m = re.fullmatch(r"\s*(-?\d*\.?\d+)\s*([a-z]*)\s*", value, re.IGNORECASE)
         if m:
             num, unit = float(m.group(1)), m.group(2).lower()
             if not unit:
                 return num
             if unit in _UNITS_PER_PT:
                 return num * _UNITS_PER_PT[unit]
-    raise ConfigError("%s: cannot parse length %r" % (what, value))
+    msg = f"{what}: cannot parse length {value!r}"
+    raise ConfigError(msg)
 
 
-def twips(value, what: str) -> int:
-    return int(round(to_points(value, what) * 20))
+def twips(value: object, what: str) -> int:
+    """Convert a config length into twentieths of a point."""
+    return round(to_points(value, what) * 20)
 
 
-def half_points(value, what: str) -> int:
-    return int(round(to_points(value, what) * 2))
+def half_points(value: object, what: str) -> int:
+    """Convert a config length into half-points."""
+    return round(to_points(value, what) * 2)
 
 
-def eighth_points(value, what: str) -> int:
-    return max(2, min(96, int(round(to_points(value, what) * 8))))
+def eighth_points(value: object, what: str) -> int:
+    """Convert a config length into eighth-points, clamped to the schema range."""
+    return max(2, min(96, round(to_points(value, what) * 8)))
 
 
-def to_color(value, what: str) -> str:
+def to_color(value: object, what: str) -> str:
+    """Normalize a config color into six-digit upper-case hex or ``auto``."""
     if not isinstance(value, str):
-        raise ConfigError("%s: expected a color string, got %r" % (what, value))
+        msg = f"{what}: expected a color string, got {value!r}"
+        raise ConfigError(msg)
     v = value.strip()
     if v.lower() in ("auto", "none"):
         return "auto"
@@ -496,24 +510,26 @@ def to_color(value, what: str) -> str:
     if re.fullmatch(r"[0-9A-Fa-f]{3}", v):
         v = "".join(c * 2 for c in v)
     if not re.fullmatch(r"[0-9A-Fa-f]{6}", v):
-        raise ConfigError(
-            "%s: %r is not a valid color; use a hex value such as \"#dddddd\", "
-            "\"auto\", or one of: %s"
-            % (what, value, ", ".join(sorted(NAMED_COLORS))))
+        msg = (f'{what}: {value!r} is not a valid color; use a hex value such as '
+               f'"#dddddd", "auto", or one of: {", ".join(sorted(NAMED_COLORS))}')
+        raise ConfigError(msg)
     return v.upper()
 
 
-def onoff(value, what: str) -> str:
+def onoff(value: object, what: str) -> str:
+    """Normalize a config boolean into an OOXML toggle value."""
     if isinstance(value, bool):
         return "1" if value else "0"
     if isinstance(value, str) and value.lower() in ("true", "yes", "on", "1"):
         return "1"
     if isinstance(value, str) and value.lower() in ("false", "no", "off", "0"):
         return "0"
-    raise ConfigError("%s: expected true or false, got %r" % (what, value))
+    msg = f"{what}: expected true or false, got {value!r}"
+    raise ConfigError(msg)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
+    """Merge ``override`` into ``base`` recursively and return the result."""
     out = copy.deepcopy(base)
     for key, val in override.items():
         if isinstance(val, dict) and isinstance(out.get(key), dict):
@@ -550,12 +566,16 @@ def ensure_child(parent: ET.Element, tag: str, order: list) -> ET.Element:
 
 
 def set_val(parent: ET.Element, tag: str, order: list, val: str) -> ET.Element:
+    """Set the ``w:val`` attribute of ``tag`` under ``parent``, creating it."""
     el = ensure_child(parent, tag, order)
     el.set(w("val"), val)
     return el
 
 
-def set_toggle(parent: ET.Element, tag: str, on: bool, order: list) -> None:
+# `on` mirrors the OOXML toggle this sets and is always a computed flag, so a
+# positional boolean is the natural signature here.
+def set_toggle(parent: ET.Element, tag: str, on: bool, order: list) -> None:  # noqa: FBT001
+    """Switch an OOXML toggle property on or off."""
     el = ensure_child(parent, tag, order)
     if on:
         el.attrib.pop(w("val"), None)
@@ -564,6 +584,7 @@ def set_toggle(parent: ET.Element, tag: str, on: bool, order: list) -> None:
 
 
 def set_shading(parent: ET.Element, order: list, fill: str) -> None:
+    """Fill the element's shading, clearing any theme attributes."""
     shd = ensure_child(parent, "shd", order)
     shd.set(w("val"), "clear")
     shd.set(w("color"), "auto")
@@ -573,7 +594,7 @@ def set_shading(parent: ET.Element, order: list, fill: str) -> None:
         shd.attrib.pop(w(name), None)
 
 
-def set_border(el: ET.Element, spec, what: str) -> None:
+def set_border(el: ET.Element, spec: object, what: str) -> None:
     """Populate a CT_Border element from a config mapping or shorthand."""
     if spec is False or spec is None:
         el.set(w("val"), "none")
@@ -582,10 +603,11 @@ def set_border(el: ET.Element, spec, what: str) -> None:
         el.set(w("color"), "auto")
         return
     if not isinstance(spec, dict):
-        raise ConfigError("%s: expected a table of border properties" % what)
+        msg = f"{what}: expected a table of border properties"
+        raise ConfigError(msg)
     el.set(w("val"), str(spec.get("style", "single")))
     el.set(w("sz"), str(eighth_points(spec.get("size", 0.5), what + ".size")))
-    el.set(w("space"), str(int(round(to_points(spec.get("space", 0), what + ".space")))))
+    el.set(w("space"), str(round(to_points(spec.get("space", 0), what + ".space"))))
     el.set(w("color"), to_color(spec.get("color", "auto"), what + ".color"))
 
 
@@ -613,7 +635,8 @@ META_KEYS = {"docx_style", "based_on", "next", "priority", "quick_format",
              "hidden", "via_filter", "keep_native"}
 
 
-def drop_attrs(el: ET.Element, names) -> None:
+def drop_attrs(el: ET.Element, names: Iterable[str]) -> None:
+    """Remove the named attributes from ``el``."""
     for name in names:
         el.attrib.pop(w(name), None)
 
@@ -626,8 +649,9 @@ THEME_COLOR_ATTRS = ("themeColor", "themeTint", "themeShade")
 THEME_FILL_ATTRS = ("themeFill", "themeFillTint", "themeFillShade")
 
 
-def apply_run_props(rpr: ET.Element, cfg: dict, what: str,
-                    run_border: bool = True) -> None:
+def apply_run_props(  # noqa: C901, PLR0912 — one branch per run property reads best as a unit
+        rpr: ET.Element, cfg: dict, what: str, *, run_border: bool = True) -> None:
+    """Apply the run (character) settings in ``cfg`` to an ``rPr`` element."""
     fonts = {}
     if "font" in cfg:
         for slot in ("ascii", "hAnsi", "cs", "eastAsia"):
@@ -698,7 +722,9 @@ def apply_run_props(rpr: ET.Element, cfg: dict, what: str,
         set_border(ensure_child(rpr, "bdr", RPR_ORDER), cfg["border"], what + ".border")
 
 
-def apply_para_props(ppr: ET.Element, cfg: dict, what: str) -> None:
+def apply_para_props(  # noqa: C901, PLR0912, PLR0915 — one branch per paragraph property
+        ppr: ET.Element, cfg: dict, what: str) -> None:
+    """Apply the paragraph settings in ``cfg`` to a ``pPr`` element."""
     for key, tag in (("keep_with_next", "keepNext"), ("keep_lines", "keepLines"),
                      ("page_break_before", "pageBreakBefore"),
                      ("widow_control", "widowControl"),
@@ -734,8 +760,8 @@ def apply_para_props(ppr: ET.Element, cfg: dict, what: str) -> None:
         if "line_spacing" in cfg:
             rule = str(cfg.get("line_spacing_rule", "auto"))
             if rule == "auto":
-                sp.set(w("line"), str(int(round(
-                    to_points(cfg["line_spacing"], what + ".line_spacing") * 240))))
+                sp.set(w("line"), str(round(
+                    to_points(cfg["line_spacing"], what + ".line_spacing") * 240)))
             else:
                 sp.set(w("line"), str(twips(cfg["line_spacing"], what + ".line_spacing")))
             sp.set(w("lineRule"), rule)
@@ -752,7 +778,8 @@ def apply_para_props(ppr: ET.Element, cfg: dict, what: str) -> None:
     if "alignment" in cfg:
         val = str(cfg["alignment"]).lower()
         if val not in ALIGNMENTS:
-            raise ConfigError("%s.alignment: unknown value %r" % (what, cfg["alignment"]))
+            msg = f"{what}.alignment: unknown value {cfg['alignment']!r}"
+            raise ConfigError(msg)
         set_val(ppr, "jc", PPR_ORDER, ALIGNMENTS[val])
 
     if "outline_level" in cfg:
@@ -761,12 +788,13 @@ def apply_para_props(ppr: ET.Element, cfg: dict, what: str) -> None:
     if "border" in cfg:
         spec = cfg["border"]
         if not isinstance(spec, dict):
-            raise ConfigError("%s.border: expected a table of sides" % what)
+            msg = f"{what}.border: expected a table of sides"
+            raise ConfigError(msg)
         unknown = set(spec) - set(BORDER_SIDES_P) - {"all"}
         if unknown:
-            raise ConfigError("%s.border: unknown side(s): %s (expected any of %s)"
-                              % (what, ", ".join(sorted(unknown)),
-                                 ", ".join(["all"] + BORDER_SIDES_P)))
+            msg = (f"{what}.border: unknown side(s): {', '.join(sorted(unknown))} "
+                   f"(expected any of {', '.join(['all', *BORDER_SIDES_P])})")
+            raise ConfigError(msg)
         pbdr = ensure_child(ppr, "pBdr", PPR_ORDER)
         # `all` means the four edges; `between` and `bar` must be asked for by
         # name, since a rule between consecutive paragraphs is rarely wanted.
@@ -778,14 +806,15 @@ def apply_para_props(ppr: ET.Element, cfg: dict, what: str) -> None:
         for side in BORDER_SIDES_P:          # schema order
             if side in sides:
                 set_border(ensure_child(pbdr, side, BORDER_SIDES_P),
-                           sides[side], "%s.border.%s" % (what, side))
+                           sides[side], f"{what}.border.{side}")
 
 
 def apply_style(style_el: ET.Element, cfg: dict, stype: str, what: str) -> None:
+    """Apply one config style block to a docx style element."""
     unknown = set(cfg) - RUN_KEYS - PARA_KEYS - META_KEYS
     if unknown:
-        raise ConfigError("%s: unknown setting(s): %s"
-                          % (what, ", ".join(sorted(unknown))))
+        msg = f"{what}: unknown setting(s): {', '.join(sorted(unknown))}"
+        raise ConfigError(msg)
 
     if "based_on" in cfg:
         set_val(style_el, "basedOn", STYLE_ORDER, style_id_for(cfg["based_on"]))
@@ -808,6 +837,7 @@ def apply_style(style_el: ET.Element, cfg: dict, stype: str, what: str) -> None:
 
 
 def style_id_for(name: str) -> str:
+    """Derive the OOXML style id from a style name."""
     return re.sub(r"[^0-9A-Za-z]", "", str(name))
 
 
@@ -819,25 +849,25 @@ NS_RE = re.compile(r'xmlns:([A-Za-z0-9_.\-]+)\s*=\s*"([^"]+)"')
 
 
 def register_namespaces(xml_text: str) -> None:
+    """Register the namespace prefixes of ``xml_text`` so they round-trip."""
     for prefix, uri in NS_RE.findall(xml_text[:4000]):
-        try:
+        with contextlib.suppress(ValueError):
             ET.register_namespace(prefix, uri)
-        except ValueError:
-            pass
 
 
 def serialize(tree_root: ET.Element, original: str, root_name: str) -> bytes:
     """Serialize, restoring the original root tag so no xmlns is dropped."""
     body = ET.tostring(tree_root, encoding="unicode")
-    original_root = re.search(r"<%s\b[^>]*>" % re.escape(root_name), original)
+    original_root = re.search(rf"<{re.escape(root_name)}\b[^>]*>", original)
     if original_root:
-        body = re.sub(r"^<%s\b[^>]*>" % re.escape(root_name),
+        body = re.sub(rf"^<{re.escape(root_name)}\b[^>]*>",
                       lambda _m: original_root.group(0), body, count=1)
     decl = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
     return (decl + body).encode("utf-8")
 
 
-def find_style_el(root: ET.Element, name: str, stype: str):
+def find_style_el(root: ET.Element, name: str, stype: str) -> ET.Element | None:
+    """Find a style by name, falling back to its derived style id."""
     want = name.lower()
     sid = style_id_for(name).lower()
     fallback = None
@@ -853,6 +883,7 @@ def find_style_el(root: ET.Element, name: str, stype: str):
 
 
 def create_style_el(root: ET.Element, name: str, stype: str) -> ET.Element:
+    """Create a new style element with sensible defaults."""
     st = ET.SubElement(root, w("style"))
     st.set(w("type"), stype)
     st.set(w("styleId"), style_id_for(name))
@@ -864,7 +895,8 @@ def create_style_el(root: ET.Element, name: str, stype: str) -> ET.Element:
     return st
 
 
-def apply_table_config(root: ET.Element, cfg: dict) -> None:
+def apply_table_config(root: ET.Element, cfg: dict) -> None:  # noqa: C901 — one branch per table setting
+    """Apply the ``[table]`` section to the Table style."""
     style = find_style_el(root, "Table", "table")
     if style is None:
         style = create_style_el(root, "Table", "table")
@@ -918,9 +950,10 @@ def apply_table_config(root: ET.Element, cfg: dict) -> None:
                         to_color(header["background"], "table.header.background"))
 
 
-def build_styles_xml(source: str, config: dict) -> bytes:
+def build_styles_xml(source: str, config: dict) -> bytes:  # noqa: C901 — cohesive rewrite pass
+    """Rewrite ``styles.xml`` according to the configuration."""
     register_namespaces(source)
-    root = ET.fromstring(source)
+    root = ET.fromstring(source)  # noqa: S314 — parses the user's own reference document
 
     doc = config.get("document") or {}
     if {"default_font", "default_size", "default_language"} & doc.keys():
@@ -939,17 +972,19 @@ def build_styles_xml(source: str, config: dict) -> bytes:
 
     for key, block in (config.get("styles") or {}).items():
         if key not in STYLE_MAP:
-            raise ConfigError("styles.%s: unknown style key (see --list-styles)" % key)
+            msg = f"styles.{key}: unknown style key (see --list-styles)"
+            raise ConfigError(msg)
         if not isinstance(block, dict):
-            raise ConfigError("styles.%s: expected a table of settings" % key)
+            msg = f"styles.{key}: expected a table of settings"
+            raise ConfigError(msg)
         name, stype = STYLE_MAP[key]
         if "docx_style" in block:
             if key not in FILTERED_INLINES:
-                raise ConfigError(
-                    "styles.%s.docx_style: only the filter-driven inline styles "
-                    "(%s) can be retargeted; pandoc picks the style name %r for "
-                    "%s itself." % (key, ", ".join(sorted(FILTERED_INLINES)),
-                                    name, key))
+                msg = (f"styles.{key}.docx_style: only the filter-driven inline "
+                       f"styles ({', '.join(sorted(FILTERED_INLINES))}) can be "
+                       f"retargeted; pandoc picks the style name {name!r} for "
+                       f"{key} itself.")
+                raise ConfigError(msg)
             name = block["docx_style"]
         if stype == "table":
             continue
@@ -964,7 +999,8 @@ def build_styles_xml(source: str, config: dict) -> bytes:
     return serialize(root, source, "w:styles")
 
 
-def build_document_xml(source: str, doc_cfg: dict) -> bytes:
+def build_document_xml(source: str, doc_cfg: dict) -> bytes | None:  # noqa: C901 — one branch per page setting
+    """Rewrite the section properties of ``document.xml``, where configured."""
     keys = {"page_size", "page_width", "page_height", "orientation",
             "margin_top", "margin_bottom", "margin_left", "margin_right",
             "margin_header", "margin_footer", "margin_gutter"}
@@ -972,7 +1008,7 @@ def build_document_xml(source: str, doc_cfg: dict) -> bytes:
         return None
 
     register_namespaces(source)
-    root = ET.fromstring(source)
+    root = ET.fromstring(source)  # noqa: S314 — parses the user's own reference document
     body = root.find(w("body"))
     if body is None:
         return None
@@ -988,8 +1024,9 @@ def build_document_xml(source: str, doc_cfg: dict) -> bytes:
 
     size_name = str(doc_cfg.get("page_size", "letter")).lower()
     if size_name not in PAGE_SIZES:
-        raise ConfigError("document.page_size: unknown size %r (known: %s)"
-                          % (doc_cfg.get("page_size"), ", ".join(sorted(PAGE_SIZES))))
+        msg = (f"document.page_size: unknown size {doc_cfg.get('page_size')!r} "
+               f"(known: {', '.join(sorted(PAGE_SIZES))})")
+        raise ConfigError(msg)
     width, height = PAGE_SIZES[size_name]
     if "page_width" in doc_cfg:
         width = twips(doc_cfg["page_width"], "document.page_width")
@@ -1021,13 +1058,15 @@ def build_document_xml(source: str, doc_cfg: dict) -> bytes:
 
 
 def build_reference_docx(base: bytes, config: dict, dest: Path) -> None:
+    """Write a copy of ``base`` with the configured styles into ``dest``."""
     with zipfile.ZipFile(io.BytesIO(base)) as zin:
         entries = [(info, zin.read(info.filename)) for info in zin.infolist()]
 
     styles_src = next((data.decode("utf-8") for info, data in entries
                        if info.filename == "word/styles.xml"), None)
     if styles_src is None:
-        raise ConfigError("reference document contains no word/styles.xml")
+        msg = "reference document contains no word/styles.xml"
+        raise ConfigError(msg)
     new_styles = build_styles_xml(styles_src, config)
 
     doc_src = next((data.decode("utf-8") for info, data in entries
@@ -1037,13 +1076,15 @@ def build_reference_docx(base: bytes, config: dict, dest: Path) -> None:
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zout:
         for info, data in entries:
             if info.filename == "word/styles.xml":
-                data = new_styles
+                payload = new_styles
             elif info.filename == "word/document.xml" and new_doc is not None:
-                data = new_doc
+                payload = new_doc
+            else:
+                payload = data
             out = zipfile.ZipInfo(info.filename, date_time=info.date_time)
             out.compress_type = zipfile.ZIP_DEFLATED
             out.external_attr = info.external_attr
-            zout.writestr(out, data)
+            zout.writestr(out, payload)
 
 
 # --------------------------------------------------------------------------
@@ -1074,6 +1115,7 @@ end
 
 
 def build_lua_filter(config: dict) -> str:
+    """Generate the Lua filter for the inline constructs marked ``via_filter``."""
     styles_cfg = config.get("styles") or {}
     style_lines, keep_lines, fn_lines = [], [], []
     for key, element in FILTERED_INLINES.items():
@@ -1081,16 +1123,20 @@ def build_lua_filter(config: dict) -> str:
         if not block.get("via_filter", False):
             continue
         name = block.get("docx_style", STYLE_MAP[key][0])
-        style_lines.append('  %s = %s,\n' % (element, lua_string(name)))
-        keep_lines.append('  %s = %s,\n'
-                          % (element, "true" if block.get("keep_native", True) else "false"))
-        fn_lines.append("function %s(el) return restyle(el, '%s') end" % (element, element))
+        style_lines.append(f"  {element} = {lua_string(name)},\n")
+        keep = "true" if block.get("keep_native", True) else "false"
+        keep_lines.append(f"  {element} = {keep},\n")
+        fn_lines.append(f"function {element}(el) return restyle(el, '{element}') end")
     if not fn_lines:
         return ""
-    return LUA_HEADER % ("".join(style_lines), "".join(keep_lines), "\n".join(fn_lines))
+    # The Lua template is full of literal braces, so %-formatting stays readable
+    # where an f-string or str.format would need every brace doubled.
+    return LUA_HEADER % (
+        "".join(style_lines), "".join(keep_lines), "\n".join(fn_lines))
 
 
 def lua_string(value: str) -> str:
+    """Quote ``value`` as a single-quoted Lua string literal."""
     return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
@@ -1099,42 +1145,51 @@ def lua_string(value: str) -> str:
 # --------------------------------------------------------------------------
 
 def load_toml(text: str, origin: str) -> dict:
+    """Parse TOML text, via the standard library or the ``tomli`` fallback."""
     try:
-        import tomllib
+        # Deferred import: JSON and YAML configs must keep working without it.
+        import tomllib  # noqa: PLC0415
     except ModuleNotFoundError:                     # Python < 3.11
         try:
-            import tomli as tomllib                 # type: ignore
+            import tomli as tomllib  # noqa: PLC0415
         except ModuleNotFoundError:
-            raise ConfigError(
-                "%s: reading TOML needs Python 3.11+ or the 'tomli' package; "
-                "alternatively use a .json or .yaml config" % origin)
+            msg = (f"{origin}: reading TOML needs Python 3.11+ or the 'tomli' "
+                   "package; alternatively use a .json or .yaml config")
+            raise ConfigError(msg) from None
     try:
         return tomllib.loads(text)
     except Exception as exc:
-        raise ConfigError("%s: %s" % (origin, exc))
+        msg = f"{origin}: {exc}"
+        raise ConfigError(msg) from exc
 
 
 def load_config_text(path: Path) -> dict:
+    """Load a configuration mapping from a TOML, YAML or JSON file."""
     text = path.read_text(encoding="utf-8")
     suffix = path.suffix.lower()
     if suffix in (".yaml", ".yml"):
         try:
-            import yaml
+            # Deferred import: PyYAML is optional and only YAML configs need it.
+            import yaml  # noqa: PLC0415
         except ModuleNotFoundError:
-            raise ConfigError("%s: YAML configs need PyYAML (pip install pyyaml)" % path)
+            msg = f"{path}: YAML configs need PyYAML (pip install pyyaml)"
+            raise ConfigError(msg) from None
         try:
             data = yaml.safe_load(text) or {}
         except Exception as exc:
-            raise ConfigError("%s: %s" % (path, exc))
+            msg = f"{path}: {exc}"
+            raise ConfigError(msg) from exc
     elif suffix == ".json":
         try:
             data = json.loads(text)
         except Exception as exc:
-            raise ConfigError("%s: %s" % (path, exc))
+            msg = f"{path}: {exc}"
+            raise ConfigError(msg) from exc
     else:
         data = load_toml(text, str(path))
     if not isinstance(data, dict):
-        raise ConfigError("%s: top level must be a table/object" % path)
+        msg = f"{path}: top level must be a table/object"
+        raise ConfigError(msg)
     return data
 
 
@@ -1146,13 +1201,14 @@ USER_CONFIG_NAMES = ["default.toml", "default.yaml", "default.yml",
 
 
 def user_config_dir() -> Path:
-    """The per-user stylesheet directory: ~/.config/md2docx by default."""
+    """Return the per-user stylesheet directory: ~/.config/md2docx by default."""
     base = os.environ.get("XDG_CONFIG_HOME")
     return (Path(base) if base else Path.home() / ".config") / "md2docx"
 
 
-def discover_config(start: Path):
-    for directory in [start] + list(start.parents):
+def discover_config(start: Path) -> Path | None:
+    """Find the nearest project configuration, else the per-user default."""
+    for directory in [start, *list(start.parents)]:
         for name in CONFIG_NAMES:
             candidate = directory / name
             if candidate.is_file():
@@ -1166,19 +1222,23 @@ def discover_config(start: Path):
     return None
 
 
-def resolve_config(explicit, search_from: Path, quiet: bool):
+def resolve_config(explicit: str | None, search_from: Path, *,
+                   quiet: bool) -> tuple[dict, Path | None]:
+    """Merge the built-in defaults with the discovered or named config file."""
     defaults = load_toml(DEFAULT_CONFIG_TOML, "<built-in defaults>")
+    path: Path | None
     if explicit is not None:
         path = Path(explicit)
         if not path.is_file():
-            raise ConfigError("config file not found: %s" % path)
+            msg = f"config file not found: {path}"
+            raise ConfigError(msg)
     else:
         path = discover_config(search_from)
     if path is None:
         return defaults, None
     merged = deep_merge(defaults, load_config_text(path))
     if not quiet:
-        print("md2docx: using config %s" % path, file=sys.stderr)
+        print(f"md2docx: using config {path}", file=sys.stderr)  # noqa: T201 — progress
     return merged, path
 
 
@@ -1186,26 +1246,33 @@ def resolve_config(explicit, search_from: Path, quiet: bool):
 # Pandoc invocation
 # --------------------------------------------------------------------------
 
-def pandoc_path(explicit=None) -> str:
+def pandoc_path(explicit: str | None = None) -> str:
+    """Return the pandoc executable to run, or fail with installation advice."""
     found = explicit or shutil.which("pandoc")
     if not found:
-        raise ConfigError(
-            "pandoc was not found on PATH.  Install it (apt install pandoc, "
-            "brew install pandoc, or https://pandoc.org/installing.html) or "
-            "pass --pandoc /path/to/pandoc.")
+        msg = ("pandoc was not found on PATH.  Install it (apt install pandoc, "
+               "brew install pandoc, or https://pandoc.org/installing.html) or "
+               "pass --pandoc /path/to/pandoc.")
+        raise ConfigError(msg)
     return found
 
 
 def default_reference_docx(pandoc: str) -> bytes:
-    proc = subprocess.run([pandoc, "--print-default-data-file", "reference.docx"],
-                          capture_output=True)
+    """Read pandoc's built-in reference.docx."""
+    # S603: fixed arguments; pandoc is the converter the user asked us to run.
+    proc = subprocess.run([pandoc, "--print-default-data-file", "reference.docx"],  # noqa: S603
+                          capture_output=True, check=False)
     if proc.returncode != 0:
-        raise ConfigError("could not read pandoc's default reference.docx: %s"
-                          % proc.stderr.decode("utf-8", "replace").strip())
+        msg = ("could not read pandoc's default reference.docx: "
+               f"{proc.stderr.decode('utf-8', 'replace').strip()}")
+        raise ConfigError(msg)
     return proc.stdout
 
 
-def build_pandoc_args(args, config, reference: Path, lua: Path, inputs, output: Path):
+def build_pandoc_args(  # noqa: PLR0913 — one parameter per ingredient of the command line
+        args: argparse.Namespace, config: dict, reference: Path,
+        lua: Path | None, inputs: list, output: Path) -> list:
+    """Assemble the full pandoc command line."""
     pcfg = config.get("pandoc") or {}
     cmd = [args.pandoc_bin]
 
@@ -1229,7 +1296,7 @@ def build_pandoc_args(args, config, reference: Path, lua: Path, inputs, output: 
         cmd.append("--no-highlight")
 
     for key, value in (pcfg.get("metadata") or {}).items():
-        cmd += ["--metadata", "%s=%s" % (key, value)]
+        cmd += ["--metadata", f"{key}={value}"]
 
     cmd += [str(a) for a in (pcfg.get("extra_args") or [])]
     cmd += list(args.pandoc_args)
@@ -1248,6 +1315,7 @@ def build_pandoc_args(args, config, reference: Path, lua: Path, inputs, output: 
 # --------------------------------------------------------------------------
 
 def make_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     p = argparse.ArgumentParser(
         prog="md2docx",
         description="Convert Markdown to .docx with formatting driven by a config file.",
@@ -1295,11 +1363,12 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("-q", "--quiet", action="store_true",
                    help="suppress progress messages")
     p.add_argument("--version", action="version",
-                   version="md2docx %s" % __version__)
+                   version=f"md2docx {__version__}")
     return p
 
 
-def split_pandoc_args(argv):
+def split_pandoc_args(argv: list) -> tuple[list, list]:
+    """Split ``argv`` at ``--`` into md2docx arguments and pandoc passthrough."""
     if "--" in argv:
         idx = argv.index("--")
         return argv[:idx], argv[idx + 1:]
@@ -1307,30 +1376,33 @@ def split_pandoc_args(argv):
 
 
 def list_styles() -> None:
-    print("Configurable style keys ([styles.KEY] in the config file):\n")
+    """Print the configurable style keys."""
+    print("Configurable style keys ([styles.KEY] in the config file):\n")  # noqa: T201 — output
     width = max(len(k) for k in STYLE_MAP)
     for key in sorted(STYLE_MAP, key=lambda k: (STYLE_MAP[k][1], k)):
         name, stype = STYLE_MAP[key]
         mark = "  (via Lua filter)" if key in FILTERED_INLINES else ""
-        print("  %-*s  %-10s -> %s%s" % (width, key, stype, name, mark))
-    print("\nTable formatting lives in its own [table] section.")
+        print(f"  {key:<{width}}  {stype:<10} -> {name}{mark}")  # noqa: T201 — output
+    print("\nTable formatting lives in its own [table] section.")  # noqa: T201 — output
 
 
-def path_dirs():
-    """The $PATH components, in order, that we could install into."""
+def path_dirs() -> Iterator[Path]:
+    """Yield the $PATH components, in order, that we could install into."""
     for raw in os.environ.get("PATH", "").split(os.pathsep):
         if not raw:
             continue                      # an empty entry means "."
         yield Path(raw).expanduser()
 
 
-def writable_path_dirs():
+def writable_path_dirs() -> Iterator[Path]:
+    """Yield the $PATH directories we can actually write into."""
     for directory in path_dirs():
         if directory.is_dir() and os.access(directory, os.W_OK | os.X_OK):
             yield directory
 
 
 def looks_like_md2docx(path: Path) -> bool:
+    """Report whether ``path`` looks like an installed copy of this script."""
     try:
         with path.open("rb") as handle:
             return b"DEFAULT_CONFIG_TOML" in handle.read(200_000)
@@ -1338,52 +1410,61 @@ def looks_like_md2docx(path: Path) -> bool:
         return False
 
 
-def install(target_dir, force: bool, quiet: bool) -> int:
+def install(target_dir: str | None, *, force: bool, quiet: bool) -> int:
+    """Copy this script to ``target_dir`` or the first writable $PATH entry."""
     source = Path(__file__).resolve()
 
+    dest_dir: Path | None
     if target_dir is not None:
         dest_dir = Path(target_dir).expanduser()
         if not dest_dir.is_dir():
-            raise ConfigError("install directory does not exist: %s" % dest_dir)
+            msg = f"install directory does not exist: {dest_dir}"
+            raise ConfigError(msg)
         if not os.access(dest_dir, os.W_OK | os.X_OK):
-            raise ConfigError("install directory is not writable: %s" % dest_dir)
+            msg = f"install directory is not writable: {dest_dir}"
+            raise ConfigError(msg)
     else:
         dest_dir = next(iter(writable_path_dirs()), None)
         if dest_dir is None:
-            raise ConfigError(
+            msg = (
                 "no writable directory on PATH.  Either name one:\n"
                 "    md2docx --install ~/bin\n"
                 "or create the usual one and put it on your PATH:\n"
                 "    mkdir -p ~/.local/bin\n"
-                "    export PATH=\"$HOME/.local/bin:$PATH\"")
+                '    export PATH="$HOME/.local/bin:$PATH"')
+            raise ConfigError(msg)
 
     dest = dest_dir / "md2docx"
 
     if dest.is_symlink() or dest.exists():
         if dest.resolve() == source:
-            print("md2docx: %s already points at this script" % dest)
+            print(f"md2docx: {dest} already points at this script")  # noqa: T201 — output
             return 0
         if not force and not looks_like_md2docx(dest):
-            raise ConfigError(
-                "%s already exists and does not look like md2docx; "
-                "pass --force to replace it" % dest)
+            msg = (f"{dest} already exists and does not look like md2docx; "
+                   "pass --force to replace it")
+            raise ConfigError(msg)
         dest.unlink()                     # replace, never write through a symlink
 
     shutil.copyfile(source, dest)
-    os.chmod(dest, 0o755)
-    print("md2docx: installed %s" % dest)
+    dest.chmod(0o755)
+    print(f"md2docx: installed {dest}")  # noqa: T201 — output
 
     found = shutil.which("md2docx")
     if found and Path(found).resolve() != dest.resolve():
-        print("md2docx: warning: %s comes earlier on PATH and will shadow it"
-              % found, file=sys.stderr)
+        print(  # noqa: T201 — warning for the person installing
+            f"md2docx: warning: {found} comes earlier on PATH and will shadow it",
+            file=sys.stderr)
     elif not quiet:
-        print("md2docx: run 'md2docx --init user' to create "
-              "%s" % (user_config_dir() / "default.toml"))
+        print("md2docx: run 'md2docx --init user' to create "  # noqa: T201 — output
+              f"{user_config_dir() / 'default.toml'}")
     return 0
 
 
-def run(argv) -> int:
+# run() is the whole command-line surface: a flat sequence of early-exit modes
+# followed by the conversion, which reads better than it would split apart.
+def run(argv: list) -> int:  # noqa: C901, PLR0911, PLR0912, PLR0915
+    """Run the conversion, or one of the utility modes, and return a status."""
     argv, passthrough = split_pandoc_args(argv)
     parser = make_parser()
     args = parser.parse_args(argv)
@@ -1395,23 +1476,24 @@ def run(argv) -> int:
 
     if args.install:
         target = None if args.install is True else args.install
-        return install(target, args.force, args.quiet)
+        return install(target, force=args.force, quiet=args.quiet)
 
     if args.init:
         dest = Path(args.init).expanduser()
         if args.init == "user":
             dest = user_config_dir() / "default.toml"
         if dest.exists():
-            print("md2docx: %s already exists; not overwriting" % dest, file=sys.stderr)
+            print(f"md2docx: {dest} already exists; not overwriting",  # noqa: T201 — error report
+                  file=sys.stderr)
             return 1
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(DEFAULT_CONFIG_TOML, encoding="utf-8")
-        print("md2docx: wrote %s" % dest)
+        print(f"md2docx: wrote {dest}")  # noqa: T201 — output
         return 0
 
     search_from = Path(args.inputs[0]).resolve().parent if (
         args.inputs and args.inputs[0] != "-") else Path.cwd()
-    config, _config_path = resolve_config(args.config, search_from, args.quiet)
+    config, _config_path = resolve_config(args.config, search_from, quiet=args.quiet)
 
     if args.print_filter:
         sys.stdout.write(build_lua_filter(config) or
@@ -1427,7 +1509,7 @@ def run(argv) -> int:
 
     if args.print_reference:
         build_reference_docx(base, config, Path(args.print_reference))
-        print("md2docx: wrote %s" % args.print_reference)
+        print(f"md2docx: wrote {args.print_reference}")  # noqa: T201 — output
         return 0
 
     if not args.inputs:
@@ -1435,7 +1517,8 @@ def run(argv) -> int:
 
     for name in args.inputs:
         if name != "-" and not Path(name).is_file():
-            raise ConfigError("input file not found: %s" % name)
+            msg = f"input file not found: {name}"
+            raise ConfigError(msg)
 
     if args.output:
         output = Path(args.output)
@@ -1458,36 +1541,43 @@ def run(argv) -> int:
         cmd = build_pandoc_args(args, config, reference, lua, args.inputs, output)
 
         if args.verbose or args.dry_run:
-            print(" ".join(shell_quote(c) for c in cmd), file=sys.stderr)
+            print(" ".join(shell_quote(c) for c in cmd), file=sys.stderr)  # noqa: T201 — output
         if args.dry_run:
             args.keep_temp = True
             return 0
 
-        proc = subprocess.run(cmd)
+        # S603: the command is pandoc plus the options assembled above.
+        proc = subprocess.run(cmd, check=False)  # noqa: S603
         if proc.returncode != 0:
-            print("md2docx: pandoc exited with status %d" % proc.returncode,
+            print(f"md2docx: pandoc exited with status {proc.returncode}",  # noqa: T201 — error
                   file=sys.stderr)
             return proc.returncode
 
         if not args.quiet:
-            print("md2docx: wrote %s" % output)
+            print(f"md2docx: wrote {output}")  # noqa: T201 — output
         return 0
     finally:
         if args.keep_temp:
-            print("md2docx: kept generated files in %s" % tmpdir, file=sys.stderr)
+            print(f"md2docx: kept generated files in {tmpdir}",  # noqa: T201 — progress
+                  file=sys.stderr)
         else:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def shell_quote(value: str) -> str:
-    return value if re.fullmatch(r"[\w@%+=:,./-]+", value) else "'%s'" % value.replace("'", r"'\''")
+    """Quote ``value`` for display as part of a shell command."""
+    if re.fullmatch(r"[\w@%+=:,./-]+", value):
+        return value
+    escaped = value.replace("'", r"'\''")
+    return f"'{escaped}'"
 
 
 def main() -> int:
+    """Run the command-line interface."""
     try:
         return run(sys.argv[1:])
     except ConfigError as exc:
-        print("md2docx: %s" % exc, file=sys.stderr)
+        print(f"md2docx: {exc}", file=sys.stderr)  # noqa: T201 — error report
         return 2
     except KeyboardInterrupt:
         return 130

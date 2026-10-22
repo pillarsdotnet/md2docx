@@ -4,27 +4,28 @@ Convert Markdown to `.docx` with every formatting decision driven by a
 configuration file.
 
 `md2docx` is a single Python script with no third-party dependencies. It wraps
-pandoc, but instead of accepting pandoc's default look it compiles your config
-into two throwaway artifacts and hands them to pandoc:
+`pandoc`, but instead of accepting the default look of `pandoc` it compiles
+your configuration into two throwaway artifacts and hands them over:
 
 1. a **`reference.docx`** whose `styles.xml` carries the run and paragraph
    properties you asked for, and
-2. a **Lua filter** that routes inline constructs pandoc would otherwise emit
-   as direct formatting (`*emphasis*`, `**strong**`, `~~strikeout~~`, …)
-   through named character styles, so the config can actually reach them.
+2. a **`Lua` filter** that routes inline constructs `pandoc` would otherwise
+   emit as direct formatting (`*emphasis*`, `**strong**`, `~~strikeout~~`, …)
+   through named character styles, so the configuration can actually reach
+   them.
 
 Out of the box, code — both `` `backticks` `` and fenced blocks — is set in a
-monospace face on a light grey `#dddddd` background.
+fixed-width face on a light grey `#dddddd` background.
 
 ## Requirements
 
 - Python 3.11 or newer (3.8+ works if you `pip install tomli`)
-- [pandoc](https://pandoc.org/installing.html) on `PATH`
-- optional: PyYAML, only if you want to write your config in YAML
+- [`pandoc`](https://pandoc.org/installing.html) on `PATH`
+- optional: `PyYAML`, only if you want to write your configuration in YAML
 
 ## Install
 
-```
+```bash
 git clone https://github.com/pillarsdotnet/md2docx
 cd md2docx
 ./md2docx.py --install
@@ -34,7 +35,7 @@ cd md2docx
 your `$PATH`, `chmod`s it to 0755, and warns if an existing `md2docx` earlier
 on `$PATH` would shadow it. Name a directory to choose one yourself:
 
-```
+```bash
 ./md2docx.py --install ~/.local/bin
 ```
 
@@ -43,12 +44,12 @@ fix is `mkdir -p ~/.local/bin` and putting that on your `PATH`. Re-running
 `--install` upgrades an existing copy in place; it refuses to overwrite a file
 that isn't md2docx unless you add `--force`.
 
-Nothing requires installation, though. The repo ships a `md2docx` symlink to
+Nothing requires installation, though. The repository ships a `md2docx` symlink to
 `md2docx.py`, so `./md2docx` works straight from a clone.
 
 ## Usage
 
-```
+```bash
 md2docx README.md                    # writes README.docx
 md2docx notes.md -o report.docx
 md2docx -c house-style.toml notes.md -o report.docx
@@ -58,22 +59,22 @@ cat notes.md | md2docx - -o notes.docx
 
 Useful flags:
 
-| Flag | Effect |
-|------|--------|
-| `--install [DIR]` | copy this script to `DIR/md2docx`, or to the first writable `$PATH` entry |
-| `-c, --config FILE` | use this config instead of the discovered one |
-| `--init [FILE]` | write the default config (default `./md2docx.toml`; `--init user` writes `~/.config/md2docx/default.toml`) |
-| `--list-styles` | list every configurable style key |
-| `--print-reference FILE` | write the generated `reference.docx` and stop |
-| `--print-filter` | print the generated Lua filter and stop |
-| `--reference-doc FILE` | start from your own `.docx` instead of pandoc's |
-| `--toc` / `--no-toc`, `--number-sections` | the usual |
-| `-n, --dry-run`, `-v, --verbose` | show the pandoc command |
-| `--keep-temp` | keep the generated reference doc and filter for inspection |
+| Flag                                      | Effect                                                                                                            |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `--install [DIR]`                         | copy this script to `DIR/md2docx`, or to the first writable `$PATH` entry                                         |
+| `-c, --config FILE`                       | use this configuration instead of the discovered one                                                              |
+| `--init [FILE]`                           | write the default configuration (default `./md2docx.toml`; `--init user` writes `~/.config/md2docx/default.toml`) |
+| `--list-styles`                           | list every configurable style key                                                                                 |
+| `--print-reference FILE`                  | write the generated `reference.docx` and stop                                                                     |
+| `--print-filter`                          | print the generated `Lua` filter and stop                                                                         |
+| `--reference-doc FILE`                    | start from your own `.docx` instead of the `pandoc` default                                                       |
+| `--toc` / `--no-toc`, `--number-sections` | the usual                                                                                                         |
+| `-n, --dry-run`, `-v, --verbose`          | show the `pandoc` command                                                                                         |
+| `--keep-temp`                             | keep the generated reference doc and filter for inspection                                                        |
 
-Anything after `--` goes straight to pandoc:
+Anything after `--` goes straight to `pandoc`:
 
-```
+```bash
 md2docx notes.md -o notes.docx -- --shift-heading-level-by=1
 ```
 
@@ -81,14 +82,14 @@ md2docx notes.md -o notes.docx -- --shift-heading-level-by=1
 
 Run `md2docx --init` to drop a fully commented `md2docx.toml` next to your
 document. Everything in it is optional — whatever you leave out keeps its
-built-in default, so a config can be as small as:
+built-in default, so a configuration can be as small as:
 
 ```toml
 [styles.inline_code]
 background = "#ffe0b2"
 ```
 
-### Where the config comes from
+### Where the configuration comes from
 
 1. `--config FILE`, if given
 2. the first `md2docx.toml` / `.yaml` / `.yml` / `.json` found walking up from
@@ -99,7 +100,7 @@ background = "#ffe0b2"
 
 So the usual arrangement is one personal stylesheet that applies everywhere:
 
-```
+```bash
 md2docx --init user        # writes ~/.config/md2docx/default.toml
 $EDITOR ~/.config/md2docx/default.toml
 md2docx anything.md        # picks it up with no -c needed
@@ -108,7 +109,7 @@ md2docx anything.md        # picks it up with no -c needed
 Drop an `md2docx.toml` beside a document to override that stylesheet for one
 project, or pass `-c` to override both.
 
-Your file is deep-merged *over* the defaults, never replacing them wholesale.
+Your file is deep-merged _over_ the defaults, never replacing them wholesale.
 
 ### Sections
 
@@ -120,21 +121,21 @@ Your file is deep-merged *over* the defaults, never replacing them wholesale.
 `[styles.KEY]` — one block per Markdown construct. `md2docx --list-styles`
 prints all of them; the most-used are:
 
-| Key | Markdown | Word style |
-|-----|----------|------------|
-| `emphasis` | `*text*` | Emphasis |
-| `strong` | `**text**` | Strong |
-| `strikeout` | `~~text~~` | Strikeout |
-| `inline_code` | `` `text` `` | Verbatim Char |
-| `code_block` | ` ``` fenced ``` ` | Source Code |
-| `blockquote` | `> text` | Block Text |
-| `link` | `[text](url)` | Hyperlink |
-| `heading1` … `heading9` | `#` … `#########` | heading 1 … 9 |
-| `superscript` / `subscript` | `x^2^` / `H~2~O` | Superscript / Subscript |
-| `body`, `normal`, `compact` | paragraphs, list items, cells | Body Text, Normal, Compact |
-| `title`, `subtitle`, `author`, `date` | YAML metadata | Title, Subtitle, … |
-| `caption`, `table_caption`, `image_caption` | captions | Caption, … |
-| `footnote_text`, `footnote_reference` | `[^1]` | Footnote Text, Footnote Reference |
+| Key                                         | Markdown                      | Word style                        |
+| ------------------------------------------- | ----------------------------- | --------------------------------- |
+| `emphasis`                                  | `*text*`                      | Emphasis                          |
+| `strong`                                    | `**text**`                    | Strong                            |
+| `strikeout`                                 | `~~text~~`                    | Strikeout                         |
+| `inline_code`                               | `` `text` ``                  | Verbatim Char                     |
+| `code_block`                                | ` ``` fenced ``` `            | Source Code                       |
+| `blockquote`                                | `> text`                      | Block Text                        |
+| `link`                                      | `[text](url)`                 | Hyperlink                         |
+| `heading1` … `heading9`                     | `#` … `#########`             | heading 1 … 9                     |
+| `superscript` / `subscript`                 | `x^2^` / `H~2~O`              | Superscript / Subscript           |
+| `body`, `normal`, `compact`                 | paragraphs, list items, cells | Body Text, Normal, Compact        |
+| `title`, `subtitle`, `author`, `date`       | YAML metadata                 | Title, Subtitle, …                |
+| `caption`, `table_caption`, `image_caption` | captions                      | Caption, …                        |
+| `footnote_text`, `footnote_reference`       | `[^1]`                        | Footnote Text, Footnote Reference |
 
 `[table]` — borders, cell padding, and a `[table.header]` sub-block for the
 header row.
@@ -158,11 +159,11 @@ Paragraph settings (valid in paragraph blocks):
 `suppress_line_numbers`.
 
 Metadata: `based_on`, `next`, `priority`, `quick_format`, `hidden`, and
-`docx_style` — which retargets the block at a differently-named Word style.
+`docx_style` — which points the block at a differently-named Word style.
 `docx_style` is only accepted on the seven filter-driven inline styles below,
 because those are the only ones whose style name `md2docx` controls; for
-everything else pandoc picks the name and retargeting would silently do
-nothing.
+everything else `pandoc` picks the name, and pointing the block elsewhere
+would silently do nothing.
 
 Units and colors:
 
@@ -173,7 +174,7 @@ Units and colors:
 - colors are `"#dddddd"`, `"dddddd"`, `"#ddd"`, a common name (`"lightgrey"`),
   or `"auto"`
 - borders are tables: `border = { left = { style = "single", size = 0.75,
-  color = "#bbbbbb", space = 4 } }`. Sides are `top`, `left`, `bottom`,
+color = "#bbbbbb", space = 4 } }`. Sides are `top`, `left`, `bottom`,
   `right`, plus `between` (a rule between consecutive paragraphs of the style)
   and `bar`. `all` is shorthand for the four edges; `between` and `bar` must be
   named explicitly. A character-style `border` takes the properties directly
@@ -181,9 +182,9 @@ Units and colors:
 
 ### `via_filter` and `keep_native`
 
-Pandoc writes emphasis, strong, strikeout, underline, small caps, superscript
-and subscript as *direct* formatting, which no reference document can override.
-Those seven blocks therefore take two extra settings:
+Emphasis, strong, strikeout, underline, small caps, superscript and subscript
+come out of `pandoc` as _direct_ formatting, which no reference document can
+override. Those seven blocks therefore take two extra settings:
 
 ```toml
 [styles.emphasis]
@@ -193,10 +194,10 @@ italic      = true
 color       = "#8b0000"
 ```
 
-- `via_filter = false` leaves pandoc's native output completely alone; the rest
-  of the block is then ignored for that construct.
-- `keep_native = true` (the default) layers your style *on top of* pandoc's
-  direct formatting. This is what keeps `***bold italic***` bold **and**
+- `via_filter = false` leaves the native `pandoc` output completely alone; the
+  rest of the block is then ignored for that construct.
+- `keep_native = true` (the default) layers your style _on top of_ the direct
+  formatting from `pandoc`. This is what keeps `***bold italic***` bold **and**
   italic, because a Word run can only carry one character style and the
   innermost one wins.
 - `keep_native = false` gives the style total control — useful when you want
@@ -205,33 +206,34 @@ color       = "#8b0000"
 
 ## How it works
 
-```
+```text
 md2docx.toml ─┬─> styles.xml surgery ──> reference.docx ─┐
               │                                          ├─> pandoc ──> out.docx
               └─> generated Lua filter ──────────────────┘
 ```
 
-The base reference document is pandoc's own (`pandoc --print-default-data-file
-reference.docx`) unless you pass `--reference-doc`. `md2docx` rewrites
+The base reference document is the built-in one from `pandoc` (`pandoc
+--print-default-data-file reference.docx`) unless you pass `--reference-doc`. `md2docx` rewrites
 `word/styles.xml` — creating styles that don't exist yet, clearing theme
 references that would otherwise outrank your literal values, and inserting each
 property at its schema-mandated position — and rewrites the section properties
 in `word/document.xml` for page size and margins.
 
-Because the result is an ordinary reference document, everything stays
-inspectable:
+Because the result is an ordinary reference document, everything stays open to
+inspection:
 
-```
+```bash
 md2docx --print-reference ref.docx    # open it in Word and look around
-md2docx --print-filter                # read the generated Lua
+md2docx --print-filter                # read the generated Lua filter
 md2docx notes.md -o notes.docx --keep-temp -v
 ```
 
 ## Example
 
-`examples/sample.md` exercises every construct the default config styles:
+`examples/sample.md` exercises every construct the default configuration
+styles:
 
-```
+```bash
 md2docx examples/sample.md -o sample.docx
 ```
 

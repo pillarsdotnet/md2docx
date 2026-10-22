@@ -1,0 +1,6 @@
+md2docx (0.1.0-1) UNRELEASED; urgency=medium
+
+  * Initial packaging. Snapshot entries are generated at build time by
+    .forgejo/registry-upload and never committed.
+
+ -- Robert August Vincent II (Bob) <pillarsdotnet@gmail.com>  Wed, 21 Oct 2026 22:30:25 -0400

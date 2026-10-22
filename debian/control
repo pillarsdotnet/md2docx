@@ -1,0 +1,33 @@
+Source: md2docx
+Section: text
+Priority: optional
+Maintainer: Robert August Vincent II (Bob) <pillarsdotnet@gmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-sequence-python3,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-setuptools,
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://forgejo.bobbalisa.org/pillarsdotnet/md2docx
+
+Package: md2docx
+Architecture: all
+Depends:
+ pandoc,
+ ${misc:Depends},
+ ${python3:Depends},
+Recommends:
+ python3-yaml,
+Description: convert Markdown to .docx driven by a configuration file
+ md2docx wraps pandoc, but instead of accepting pandoc's default look it
+ compiles a configuration file into two throwaway artifacts and hands them
+ to pandoc: a reference.docx whose styles.xml carries the configured run
+ and paragraph properties, and a Lua filter that routes inline constructs
+ pandoc would otherwise render with direct formatting (emphasis, strong,
+ strikeout, ...) through named character styles, so the configuration can
+ reach them.
+ .
+ Only the Python standard library is required; python3-yaml is used when
+ present so that YAML configuration files work too.

@@ -36,3 +36,22 @@ Source = "https://forgejo.bobbalisa.org/pillarsdotnet/md2docx"
 
 [tool.setuptools]
 py-modules = ["md2docx"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# Enable the entire Ruff rule set; suppress only mutually-incompatible rules.
+select = ["ALL"]
+ignore = [
+    "D203",  # conflicts with D211 — keep D211 (no blank line before class docstring)
+    "D213",  # conflicts with D212 — keep D212 (summary on first line)
+]
+
+[tool.mypy]
+# Pin the target so mypy checks the language level we actually support
+# (requires-python) instead of whatever interpreter happens to run the hook.
+python_version = "3.10"
+files = ["md2docx.py"]
+ignore_missing_imports = false
+warn_unused_ignores = true

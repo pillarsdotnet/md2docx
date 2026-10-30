@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "md2docx"
-version = "0.1.0"
+version = "1.0.0"
 description = "Convert Markdown to .docx with formatting driven by a config file"
 readme = "README.md"
 requires-python = ">=3.10"

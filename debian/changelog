@@ -1,4 +1,4 @@
-md2docx (0.1.0-1) UNRELEASED; urgency=medium
+md2docx (1.0.0-1) UNRELEASED; urgency=medium
 
   * Initial packaging. Snapshot entries are generated at build time by
     .forgejo/registry-upload and never committed.

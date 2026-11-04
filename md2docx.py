@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Robert August Vincent II <pillarsdotnet@gmail.com>
+# Co-author: Claude Code.
 """md2docx - convert Markdown to .docx with formatting driven by a config file.
 
 The tool wraps pandoc.  Everything about the look of the output document is
@@ -1269,7 +1271,7 @@ def default_reference_docx(pandoc: str) -> bytes:
     return proc.stdout
 
 
-def build_pandoc_args(  # noqa: PLR0913 — one parameter per ingredient of the command line
+def build_pandoc_args(  # noqa: PLR0913, PLR0917 — one parameter per ingredient of the command line
         args: argparse.Namespace, config: dict, reference: Path,
         lua: Path | None, inputs: list, output: Path) -> list:
     """Assemble the full pandoc command line."""

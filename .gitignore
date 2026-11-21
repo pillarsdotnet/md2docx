@@ -3,3 +3,12 @@
 __pycache__/
 *.py[cod]
 .venv/
+
+# Debian build artifacts (debian/rules clean removes these too)
+/.pybuild/
+/debian/.debhelper/
+/debian/md2docx/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper

@@ -8,6 +8,13 @@ version = "1.0.0"
 description = "Convert Markdown to .docx with formatting driven by a config file"
 readme = "README.md"
 requires-python = ">=3.10"
+# Kept as a TOML table, which setuptools deprecates, because noble must
+# build this. PEP 639's SPDX string needs setuptools >= 77.0.0; noble ships
+# 68.1.2, which rejects a bare string outright -- "must be valid exactly by
+# one definition (2 matches found)", since it matches neither the file nor
+# the text form. Measured in an ubuntu:24.04 container on 2026-11-20. Swap
+# this for `license = "MIT"` and drop this comment once noble stops being a
+# target; see .forgejo/workflows/registry.yml for the series matrix.
 license = { text = "MIT" }
 authors = [
     { name = "Robert August Vincent II", email = "pillarsdotnet@gmail.com" },
@@ -15,7 +22,6 @@ authors = [
 keywords = ["markdown", "docx", "pandoc", "reference-docx"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Topic :: Text Processing :: Markup :: Markdown",
     "Topic :: Office/Business",
